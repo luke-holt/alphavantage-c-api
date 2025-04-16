@@ -11,6 +11,8 @@
 #define UTIL_ANSI_CYAN    "\x1b[36m"
 #define UTIL_ANSI_RESET   "\x1b[0m"
 
+#define ARRLEN(a) (sizeof((a)) / sizeof((*a)))
+
 #define UASSERT(c) \
     do { if (!(c)) { \
         ulog(UFATL, "assertion failed '%s'", #c); \

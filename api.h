@@ -2,12 +2,15 @@
 #define API_H
 
 #include <stdbool.h>
+#include <stddef.h>
 
-#define AV_TIMESERIES_INTRADAY (0)
-#define AV_TIMESERIES_DAILY (1)
-#define AV_TIMESERIES_DAILY_ADJUSTED (2)
-#define AV_TIMESERIES_MONTHLY (3)
-#define AV_TIMESERIES_MONTHLY_ADJUSTED (4)
+#define AV_TIME_SERIES_INTRADAY (0)
+#define AV_TIME_SERIES_DAILY (1)
+#define AV_TIME_SERIES_DAILY_ADJUSTED (2)
+#define AV_TIME_SERIES_WEEKLY_ADJUSTED (3)
+#define AV_TIME_SERIES_WEEKLY (4)
+#define AV_TIME_SERIES_MONTHLY (5)
+#define AV_TIME_SERIES_MONTHLY_ADJUSTED (6)
 
 #define AV_INTERVAL_1MIN (0)
 #define AV_INTERVAL_5MIN (1)
@@ -29,17 +32,29 @@
 
 typedef void *alphavantage_t;
 
-void alphavantage_init(alphavantage_t *av, const char *apikey);
+typedef struct {
+    size_t size;
+    char *data;
+} av_response_t;
+
+// returns 0 on success and -1 on failure
+int alphavantage_init(alphavantage_t *av, const char *apikey);
+
 void alphavantage_delete(alphavantage_t *av);
 
-int alphavantage_stock(
+// returns 0 on success and -1 on failure
+// `response` is allocated by this function and must be freed by the caller
+int alphavantage(
     alphavantage_t av,
     const char *symbol,
+    const char *month,
     int function,
     int interval,
+    int adjusted,
+    int extended_hours,
     int outputsize,
-    int datatype
+    int datatype,
+    av_response_t *response
 );
-
 
 #endif // API_H

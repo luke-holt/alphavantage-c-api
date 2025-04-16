@@ -10,15 +10,9 @@
 #define USTR_IMPL
 #include "ustr.h"
 
-struct curlmem_t {
-    size_t size;
-    char *data;
-};
-
 struct avctx_t {
     CURL *curl;
     char apikey[17];
-    struct curlmem_t curlmem;
 };
 
 static const char *baseurl = "https://www.alphavantage.co/query";
@@ -27,11 +21,11 @@ static size_t
 writecb(void *contents, size_t size, size_t nmemb, void *userp)
 {
     size_t totalsize = size*nmemb;
-    struct curlmem_t *mem = (struct curlmem_t *)userp;
+    av_response_t *mem = (av_response_t *)userp;
 
     char *p = realloc(mem->data, mem->size + totalsize + 1);
     if (!p) {
-        ulog(UPERR, "writecb: realloc failed");
+        ulog(UPERR, "%s: realloc failed", __func__);
         return 0;
     }
 
@@ -43,7 +37,7 @@ writecb(void *contents, size_t size, size_t nmemb, void *userp)
     return totalsize;
 }
 
-void
+int
 alphavantage_init(alphavantage_t *av, const char *apikey)
 {
     UASSERT(av);
@@ -57,43 +51,44 @@ alphavantage_init(alphavantage_t *av, const char *apikey)
     rc = curl_global_init(CURL_GLOBAL_DEFAULT);
     if (rc) {
         ulog(UFATL, "curl_global_init -> %s", curl_easy_strerror(rc));
-        return;
+        return -1;
     }
 
     curl = curl_easy_init();
     if (!curl) {
         ulog(UFATL, "curl_easy_init -> %s", curl_easy_strerror(rc));
-        return;
+        return -1;
     }
 
     rc = curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, (long)CURL_HTTP_VERSION_3);
     if (rc) {
         ulog(UFATL, "curl_easy_setopt, CURLOPT_HTTP_VERSION -> %s", curl_easy_strerror(rc));
-        return;
+        return -1;
     }
 
     rc = curl_easy_setopt(curl, CURLOPT_USERAGENT, "libcurl-agent/1.0");
     if (rc) {
         ulog(UFATL, "curl_easy_setopt, CURLOPT_USERAGENT -> %s", curl_easy_strerror(rc));
-        return;
+        return -1;
     }
 
     rc = curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, writecb);
     if (rc) {
         ulog(UFATL, "curl_easy_setopt, CURLOPT_WRITEFUNCTION -> %s", curl_easy_strerror(rc));
-        return;
+        return -1;
     }
 
     struct avctx_t *ctx = malloc(sizeof(*ctx));
     UASSERT(ctx);
 
     ctx->curl = curl;
-    UASSERT(ctx->curlmem.data);
 
     strncpy(ctx->apikey, apikey, 16);
     ctx->apikey[16] = '\0';
 
     *av = (alphavantage_t)ctx;
+
+    return 0;
 }
 
 void
@@ -101,14 +96,9 @@ alphavantage_delete(alphavantage_t *av)
 {
     UASSERT(av);
     UASSERT(*av);
-
     struct avctx_t *ctx = (struct avctx_t *)*av;
-
     curl_easy_cleanup(ctx->curl);
     curl_global_cleanup();
-    if (ctx->curlmem.data)
-        free(ctx->curlmem.data);
-
     memset(ctx, 0, sizeof(*ctx));
     free(ctx);
     *av = NULL;
@@ -116,12 +106,14 @@ alphavantage_delete(alphavantage_t *av)
 
 static const char *param_function(int function) {
     switch (function) {
-    case AV_TIMESERIES_INTRADAY: return "function=TIMESERIES_INTRADAY";
-    case AV_TIMESERIES_DAILY: return "function=TIMESERIES_DAILY";
-    case AV_TIMESERIES_DAILY_ADJUSTED: return "function=TIMESERIES_DAILY_ADJUSTED";
-    case AV_TIMESERIES_MONTHLY: return "function=TIMESERIES_MONTHLY";
-    case AV_TIMESERIES_MONTHLY_ADJUSTED: return "function=TIMESERIES_MONTHLY_ADJUSTED";
-    default: return "function=TIMESERIES_INTRADAY";
+    case AV_TIME_SERIES_INTRADAY: return "function=TIME_SERIES_INTRADAY";
+    case AV_TIME_SERIES_DAILY: return "function=TIME_SERIES_DAILY";
+    case AV_TIME_SERIES_DAILY_ADJUSTED: return "function=TIME_SERIES_DAILY_ADJUSTED";
+    case AV_TIME_SERIES_WEEKLY: return "function=TIME_SERIES_WEEKLY";
+    case AV_TIME_SERIES_WEEKLY_ADJUSTED: return "function=TIME_SERIES_WEEKLY_ADJUSTED";
+    case AV_TIME_SERIES_MONTHLY: return "function=TIME_SERIES_MONTHLY";
+    case AV_TIME_SERIES_MONTHLY_ADJUSTED: return "function=TIME_SERIES_MONTHLY_ADJUSTED";
+    default: return "function=TIME_SERIES_INTRADAY";
     }
 }
 
@@ -168,35 +160,139 @@ static const char *param_extended_hours(int extended_hours) {
     }
 }
 
-int alphavantage_stock(
-    alphavantage_t av,
+static bool
+valid_month_format(const char *month)
+{
+    UASSERT(month);
+    return (strlen(month) == 7) && (isnumber(month[0])) &&
+           (isnumber(month[1])) && (isnumber(month[2])) &&
+           (isnumber(month[3])) && (month[4] == '-') &&
+           (isnumber(month[5])) && (isnumber(month[6]));
+}
+
+static const char *
+build_query(
+    ustr_builder_t *b,
+    const char *apikey,
     const char *symbol,
+    const char *month,
     int function,
     int interval,
+    int adjusted,
+    int extended_hours,
     int outputsize,
-    int datatype
-)
+    int datatype)
 {
-    struct avctx_t *ctx = (struct avctx_t *)av;
-    CURLcode rc;
+    UASSERT(apikey);
+    UASSERT(symbol);
 
+    const char *url;
+
+    // begin query with base url
+    url = ustr_builder_puts(b, baseurl);
+
+    switch (function) {
+    case AV_TIME_SERIES_INTRADAY:
+        ustr_builder_putc(b, '?');
+        ustr_builder_puts(b, param_function(function));
+        ustr_builder_puts(b, "&apikey=");
+        ustr_builder_puts(b, apikey);
+        ustr_builder_puts(b, "&symbol=");
+        ustr_builder_puts(b, symbol);
+        if (interval) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_interval(interval));
+        }
+        if (adjusted) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_adjusted(adjusted));
+        }
+        if (outputsize) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_outputsize(outputsize));
+        }
+        if (datatype) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_datatype(datatype));
+        }
+        if (month && valid_month_format(month)) {
+            ustr_builder_puts(b, "&month=");
+            ustr_builder_puts(b, month);
+        }
+        ustr_builder_putc(b, '\0');
+        break;
+
+    case AV_TIME_SERIES_DAILY:
+    case AV_TIME_SERIES_DAILY_ADJUSTED:
+        ustr_builder_putc(b, '?');
+        ustr_builder_puts(b, param_function(function));
+        ustr_builder_puts(b, "&apikey=");
+        ustr_builder_puts(b, apikey);
+        ustr_builder_puts(b, "&symbol=");
+        ustr_builder_puts(b, symbol);
+        if (outputsize) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_outputsize(outputsize));
+        }
+        if (datatype) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_datatype(datatype));
+        }
+        ustr_builder_putc(b, '\0');
+        break;
+
+    case AV_TIME_SERIES_WEEKLY:
+    case AV_TIME_SERIES_WEEKLY_ADJUSTED:
+    case AV_TIME_SERIES_MONTHLY:
+    case AV_TIME_SERIES_MONTHLY_ADJUSTED:
+        ustr_builder_putc(b, '?');
+        ustr_builder_puts(b, param_function(function));
+        ustr_builder_puts(b, "&apikey=");
+        ustr_builder_puts(b, apikey);
+        ustr_builder_puts(b, "&symbol=");
+        ustr_builder_puts(b, symbol);
+        if (datatype) {
+            ustr_builder_putc(b, '&');
+            ustr_builder_puts(b, param_datatype(datatype));
+        }
+        ustr_builder_putc(b, '\0');
+        break;
+
+    default:
+        ulog(UWARN, "unimplemented function %d", function);
+        break;
+    }
+
+    return url;
+}
+
+int
+alphavantage(
+    alphavantage_t av,
+    const char *symbol,
+    const char *month,
+    int function,
+    int interval,
+    int adjusted,
+    int extended_hours,
+    int outputsize,
+    int datatype,
+    av_response_t *response)
+{
+    UASSERT(symbol);
+
+    struct avctx_t *ctx = (struct avctx_t *)av;
     ustr_builder_t b;
+    CURLcode rc;
+    const char *url;
+
     ustr_builder_alloc(&b);
 
-    char *url = ustr_builder_puts(&b, baseurl);
-    ustr_builder_putc(&b, '?');
-    ustr_builder_puts(&b, param_function(function));
-    ustr_builder_putc(&b, '&');
-    ustr_builder_puts(&b, param_interval(interval));
-    ustr_builder_putc(&b, '&');
-    ustr_builder_puts(&b, param_outputsize(outputsize));
-    ustr_builder_putc(&b, '&');
-    ustr_builder_puts(&b, param_datatype(datatype));
-    ustr_builder_putc(&b, '&');
-    ustr_builder_printf(&b, "symbol=%s", symbol);
-    ustr_builder_putc(&b, '&');
-    ustr_builder_printf(&b, "apikey=%s", ctx->apikey);
-    ustr_builder_putc(&b, '\0');
+    url = build_query(&b, ctx->apikey, symbol, month, function,
+                      interval, adjusted, extended_hours,
+                      outputsize, datatype);
+  
+    ulog(UINFO, "url: %s", url);
 
     // register url
     rc = curl_easy_setopt(ctx->curl, CURLOPT_URL, url);
@@ -206,13 +302,13 @@ int alphavantage_stock(
     }
 
     // create memory for response
-    ctx->curlmem.size = 0;
-    ctx->curlmem.data = malloc(1);
-    rc = curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, (void *)&ctx->curlmem);
+    response->size = 0;
+    response->data = malloc(1);
+    UASSERT(response->data);
+    rc = curl_easy_setopt(ctx->curl, CURLOPT_WRITEDATA, (void *)response);
     if (rc) {
-        free(ctx->curlmem.data);
-        ctx->curlmem.data = NULL;
-
+        free(response->data);
+        response->data = NULL;
         ulog(UFATL, "curl_easy_setopt, CURLOPT_WRITEDATA -> %s", curl_easy_strerror(rc));
         return -1;
     }
@@ -223,14 +319,7 @@ int alphavantage_stock(
         return -1;
     }
 
-    ulog(UINFO, "url: %s", url);
-    ulog(UINFO, "got %zu bytes", ctx->curlmem.size);
-
-    // free response memory
-    free(ctx->curlmem.data);
-    ctx->curlmem.data = NULL;
     ustr_builder_free(&b);
-
     return 0;
 }
 
