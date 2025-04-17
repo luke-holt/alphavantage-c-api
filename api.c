@@ -176,12 +176,12 @@ build_query(
     const char *apikey,
     const char *symbol,
     const char *month,
-    int function,
-    int interval,
-    int adjusted,
-    int extended_hours,
-    int outputsize,
-    int datatype)
+    av_function_t function,
+    av_interval_t interval,
+    av_adjusted_t adjusted,
+    av_extended_hours_t extended_hours,
+    av_outputsize_t outputsize,
+    av_datatype_t datatype)
 {
     UASSERT(apikey);
     UASSERT(symbol);
@@ -271,12 +271,12 @@ alphavantage(
     alphavantage_t av,
     const char *symbol,
     const char *month,
-    int function,
-    int interval,
-    int adjusted,
-    int extended_hours,
-    int outputsize,
-    int datatype,
+    av_function_t function,
+    av_interval_t interval,
+    av_adjusted_t adjusted,
+    av_extended_hours_t extended_hours,
+    av_outputsize_t outputsize,
+    av_datatype_t datatype,
     av_response_t *response)
 {
     UASSERT(symbol);

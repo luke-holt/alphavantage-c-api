@@ -4,31 +4,43 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#define AV_TIME_SERIES_INTRADAY (0)
-#define AV_TIME_SERIES_DAILY (1)
-#define AV_TIME_SERIES_DAILY_ADJUSTED (2)
-#define AV_TIME_SERIES_WEEKLY_ADJUSTED (3)
-#define AV_TIME_SERIES_WEEKLY (4)
-#define AV_TIME_SERIES_MONTHLY (5)
-#define AV_TIME_SERIES_MONTHLY_ADJUSTED (6)
+typedef enum {
+    AV_TIME_SERIES_INTRADAY,
+    AV_TIME_SERIES_DAILY,
+    AV_TIME_SERIES_DAILY_ADJUSTED,
+    AV_TIME_SERIES_WEEKLY_ADJUSTED,
+    AV_TIME_SERIES_WEEKLY,
+    AV_TIME_SERIES_MONTHLY,
+    AV_TIME_SERIES_MONTHLY_ADJUSTED,
+} av_function_t;
 
-#define AV_INTERVAL_1MIN (0)
-#define AV_INTERVAL_5MIN (1)
-#define AV_INTERVAL_15MIN (2)
-#define AV_INTERVAL_30MIN (3)
-#define AV_INTERVAL_60MIN (5)
+typedef enum {
+    AV_INTERVAL_1MIN,
+    AV_INTERVAL_5MIN,
+    AV_INTERVAL_15MIN,
+    AV_INTERVAL_30MIN,
+    AV_INTERVAL_60MIN,
+} av_interval_t;
 
-#define AV_OUTPUTSIZE_COMPACT (0)
-#define AV_OUTPUTSIZE_FULL (1)
+typedef enum {
+    AV_OUTPUTSIZE_COMPACT,
+    AV_OUTPUTSIZE_FULL,
+} av_outputsize_t;
 
-#define AV_DATATYPE_JSON (0)
-#define AV_DATATYPE_CSV (1)
+typedef enum {
+    AV_DATATYPE_JSON,
+    AV_DATATYPE_CSV,
+} av_datatype_t;
 
-#define AV_ADJUSTED_TRUE (0)
-#define AV_ADJUSTED_FALSE (1)
+typedef enum {
+    AV_ADJUSTED_TRUE,
+    AV_ADJUSTED_FALSE,
+} av_adjusted_t;
 
-#define AV_EXTENDED_HOURS_TRUE (0)
-#define AV_EXTENDED_HOURS_FALSE (1)
+typedef enum {
+    AV_EXTENDED_HOURS_TRUE,
+    AV_EXTENDED_HOURS_FALSE,
+} av_extended_hours_t;
 
 typedef void *alphavantage_t;
 
@@ -48,12 +60,12 @@ int alphavantage(
     alphavantage_t av,
     const char *symbol,
     const char *month,
-    int function,
-    int interval,
-    int adjusted,
-    int extended_hours,
-    int outputsize,
-    int datatype,
+    av_function_t function,
+    av_interval_t interval,
+    av_adjusted_t adjusted,
+    av_extended_hours_t extended_hours,
+    av_outputsize_t outputsize,
+    av_datatype_t datatype,
     av_response_t *response
 );
 
